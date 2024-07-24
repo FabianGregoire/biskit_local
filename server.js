@@ -22,12 +22,14 @@ const io = socketIo(server, {
 
 const rules = [
     {
-        name: "dice",
+        name: "biskit",
         condition: (totalResult) => totalResult === 7,
         action: (room, player) => {
             // Action à exécuter
-            console.log(`Event emitted: ${player.name} rolled 7!`);
-            io.in(room).emit('dice', `${player.name} rolled 7!`);
+            return new Promise((resolve) => {
+                io.in(room).emit('biskit', `${player.name} a fait un biskit !`);
+                setTimeout(() => resolve(), 5000); // Attendre 5 secondes avant de résoudre
+            });
         }
     }
 ];
@@ -98,21 +100,23 @@ io.on('connection', (socket) => {
             //Update de l'historique
             io.in(room).emit('updateHistory', rooms[room].history); // Envoyer l'historique mis à jour
 
-            //Passer au joueur suivant côté client
-            rooms[room].currentTurn = (rooms[room].currentTurn + 1) % rooms[room].players.length;
-            const nextPlayer = rooms[room].players[rooms[room].currentTurn];
-            console.log('rollDice before updateTurn: playerID: ' + nextPlayer.id + ', playerName: ' + nextPlayer.name);
-            io.in(room).emit('updateTurn', {
-                playerId: nextPlayer.id,
-                playerName: nextPlayer.name
-            });
-
-            // Vérification des règles
-            rules.forEach(rule => {
-                if (rule.condition(totalResult)) {
-                    rule.action(room, currentPlayer);
+            const applyRules = async () => {
+                for (let rule of rules) {
+                    if (rule.condition(totalResult)) {
+                        await rule.action(room, currentPlayer);
+                    }
                 }
-            });
+
+                // Passer au joueur suivant après vérification des règles
+                rooms[room].currentTurn = (rooms[room].currentTurn + 1) % rooms[room].players.length;
+                const nextPlayer = rooms[room].players[rooms[room].currentTurn];
+                io.in(room).emit('updateTurn', {
+                    playerId: nextPlayer.id,
+                    playerName: nextPlayer.name
+                });
+            };
+
+            applyRules();
         }
     });
 
