@@ -20,16 +20,15 @@ const io = socketIo(server, {
     }
 });
 
+let rooms = {}; // Pour gérer les salles de jeu
+
 const rules = [
     {
         name: "biskit",
         condition: (data, params) => data.totalResult === params.targetNumber,
         action: (data) => {
             // Action à exécuter
-            return new Promise((resolve) => {
-                io.in(data.room).emit('biskit', `${data.player.name} a fait un biskit !`);
-                setTimeout(() => resolve(), 5000); // Attendre 5 secondes avant de résoudre
-            });
+            io.in(data.room).emit('biskit', `${data.currentPlayer.name} a fait un biskit !`);
         },
         params: { targetNumber: 7 }
     },
@@ -40,6 +39,56 @@ const rules = [
             // Action à exécuter
             return new Promise((resolve) => {
                 io.in(data.room).emit('double', data.diceResults[0]);
+                resolve();
+            });
+        },
+        params: {}
+    },
+    {
+        name: "chickenPlayer",
+        condition: (data, params) => data.diceResults.includes(3),
+        action: (data) => {
+            //Action à exécuter
+            return new Promise((resolve) => {
+                const { room, diceResults, currentPlayer } = data;
+                const setChicken = diceResults.includes(3) && diceResults[0] !== diceResults[1];
+                const roomData = rooms[room];
+ 
+                if (setChicken) {
+                    // Si aucun "gros poulet" n'est désigné ou si le joueur actuel n'est pas le "gros poulet"
+                    if (!roomData.chickenPlayer || roomData.chickenPlayer.id !== currentPlayer.id) {
+                        console.log("Si aucun gros poulet n'est désigné ou si le joueur actuel n'est pas le gros poulet");
+                        // Devenir "gros poulet" si c'est le premier joueur à obtenir un "3"
+                        if (!roomData.chickenPlayer) {
+                            console.log('Devenir gros poulet si cest le premier joueur à obtenir un 3');
+                            roomData.chickenPlayer = currentPlayer;
+                            io.in(room).emit('chickenPlayerStatus', `${currentPlayer.name} est maintenant le gros poulet !`);
+                        } else {
+                            console.log('Infliger une pénalité aux autres joueurs');
+                            // Infliger une pénalité aux autres joueurs
+                            io.in(room).emit('chickenPlayerPenalties', {
+                                playerId: roomData.chickenPlayer.id,
+                                penalty: `Pénalité infligée à ${roomData.chickenPlayer.name} car ${currentPlayer.name} a lancé un 3 !`
+                            });
+                        }
+                    }else{
+                        // Si le "gros poulet" lance un autre 3, il perd le "gros poulet"
+                        if (roomData.chickenPlayer && roomData.chickenPlayer.id === currentPlayer.id) {
+                            console.log("Si le gros poulet lance un autre 3, il perd le gros poulet");
+                            roomData.chickenPlayer = null;
+                            io.in(room).emit('chickenPlayerStatus', `${currentPlayer.name} perd le gros poulet.`);
+                        }
+                    }
+                }else{
+                    //Si un autre joueur que le gros poulet fait un double 3, le gros poulet prend double pénalité
+                    if (roomData.chickenPlayer && roomData.chickenPlayer.id !== currentPlayer.id){
+                        console.log("Si un autre joueur que le gros poulet fait un double 3, le gros poulet prend double pénalité");
+                        io.in(room).emit('chickenPlayerPenalties', {
+                            playerId: roomData.chickenPlayer.id,
+                            penalty: `Double pénalité infligée à ${roomData.chickenPlayer.name} car ${currentPlayer.name} a lancé un double 3 !`
+                        });
+                    }
+                }
                 resolve();
             });
         },
@@ -63,8 +112,6 @@ const applyRules = async (data) => {
     });
 };
 
-let rooms = {}; // Pour gérer les salles de jeu
-
 io.on('connection', (socket) => {
     //console.log('New client connected');
 
@@ -74,7 +121,8 @@ io.on('connection', (socket) => {
             rooms[roomName] = {
                 players: [{ id: socket.id, name: playerName }],
                 currentTurn: 0,
-                history: []
+                history: [],
+                chickenPlayer: null //Le joueur qui est actuellement le "gros poulet"
             };
             //console.log('Room created:', rooms[room]);
             socket.join(roomName);
