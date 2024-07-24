@@ -23,16 +23,45 @@ const io = socketIo(server, {
 const rules = [
     {
         name: "biskit",
-        condition: (totalResult) => totalResult === 7,
-        action: (room, player) => {
+        condition: (data, params) => data.totalResult === params.targetNumber,
+        action: (data) => {
             // Action à exécuter
             return new Promise((resolve) => {
-                io.in(room).emit('biskit', `${player.name} a fait un biskit !`);
+                io.in(data.room).emit('biskit', `${data.player.name} a fait un biskit !`);
                 setTimeout(() => resolve(), 5000); // Attendre 5 secondes avant de résoudre
             });
-        }
+        },
+        params: { targetNumber: 7 }
+    },
+    {
+        name: "double",
+        condition: (data, params) => data.diceResults[0] === data.diceResults[1],
+        action: (data) => {
+            // Action à exécuter
+            return new Promise((resolve) => {
+                io.in(data.room).emit('double', data.diceResults[0]);
+                resolve();
+            });
+        },
+        params: {}
     }
 ];
+
+const applyRules = async (data) => {
+    for (let rule of rules) {
+        if (rule.condition(data, rule.params)) {
+            await rule.action(data);
+        }
+    }
+
+    // Passer au joueur suivant après vérification des règles
+    rooms[data.room].currentTurn = (rooms[data.room].currentTurn + 1) % rooms[data.room].players.length;
+    const nextPlayer = rooms[data.room].players[rooms[data.room].currentTurn];
+    io.in(data.room).emit('updateTurn', {
+        playerId: nextPlayer.id,
+        playerName: nextPlayer.name
+    });
+};
 
 let rooms = {}; // Pour gérer les salles de jeu
 
@@ -79,7 +108,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('rollDice', ({ room, numDice }) => {
+    socket.on('rollDice', async ({ room, numDice }) => {
         if (rooms[room] && rooms[room].players[rooms[room].currentTurn].id === socket.id) {
             
             //Définition nombre de tirages suivants paramètre client
@@ -100,23 +129,15 @@ io.on('connection', (socket) => {
             //Update de l'historique
             io.in(room).emit('updateHistory', rooms[room].history); // Envoyer l'historique mis à jour
 
-            const applyRules = async () => {
-                for (let rule of rules) {
-                    if (rule.condition(totalResult)) {
-                        await rule.action(room, currentPlayer);
-                    }
-                }
-
-                // Passer au joueur suivant après vérification des règles
-                rooms[room].currentTurn = (rooms[room].currentTurn + 1) % rooms[room].players.length;
-                const nextPlayer = rooms[room].players[rooms[room].currentTurn];
-                io.in(room).emit('updateTurn', {
-                    playerId: nextPlayer.id,
-                    playerName: nextPlayer.name
-                });
+            const data = {
+                diceResults,
+                totalResult,
+                players: rooms[room].players,
+                currentPlayer,
+                room
             };
 
-            applyRules();
+            await applyRules(data);
         }
     });
 
