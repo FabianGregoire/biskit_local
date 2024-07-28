@@ -62,7 +62,7 @@ const rules = [
                         if (!roomData.chickenPlayer) {
                             console.log('Devenir gros poulet si cest le premier joueur à obtenir un 3');
                             roomData.chickenPlayer = currentPlayer;
-                            io.in(room).emit('chickenPlayerStatus', `${currentPlayer.name} est maintenant le gros poulet !`);
+                            io.in(room).emit('chickenPlayerStatus', currentPlayer.name);
                         } else {
                             console.log('Infliger une pénalité aux autres joueurs');
                             // Infliger une pénalité aux autres joueurs
@@ -76,7 +76,7 @@ const rules = [
                         if (roomData.chickenPlayer && roomData.chickenPlayer.id === currentPlayer.id) {
                             console.log("Si le gros poulet lance un autre 3, il perd le gros poulet");
                             roomData.chickenPlayer = null;
-                            io.in(room).emit('chickenPlayerStatus', `${currentPlayer.name} perd le gros poulet.`);
+                            io.in(room).emit('chickenPlayerStatus', 'VACANT');
                         }
                     }
                 }else{
