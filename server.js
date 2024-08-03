@@ -26,7 +26,7 @@ const rules = [
     {
         name: "biskit",
         condition: (data, params) => data.totalResult === params.targetNumber,
-        action: (data) => {
+        action: (data, params) => {
             // Action à exécuter
             io.in(data.room).emit('biskit', `${data.currentPlayer.name} a fait un biskit !`);
         },
@@ -35,19 +35,30 @@ const rules = [
     {
         name: "double",
         condition: (data, params) => data.diceResults[0] === data.diceResults[1],
-        action: (data) => {
-            // Action à exécuter
-            return new Promise((resolve) => {
-                io.in(data.room).emit('double', data.diceResults[0]);
-                resolve();
-            });
+        action: (data, params) => {
+            if(data.diceResults.includes(1)){
+                params.playAgain = false;
+                
+                return new Promise((resolve) => {
+                    io.in(data.room).emit('double_1', data.currentPlayer.name);
+                    resolve();
+                });
+            }else{
+                params.playAgain = true;
+
+                return new Promise((resolve) => {
+                    io.in(data.room).emit('double', data.diceResults[0]);
+                    resolve();
+                });
+            }
+            
         },
-        params: {}
+        params: {playAgain : true}
     },
     {
         name: "chickenPlayer",
         condition: (data, params) => data.diceResults.includes(3),
-        action: (data) => {
+        action: (data, params) => {
             //Action à exécuter
             return new Promise((resolve) => {
                 const { room, diceResults, currentPlayer } = data;
@@ -93,18 +104,58 @@ const rules = [
             });
         },
         params: {}
+    },
+    {
+        name: "numberCheck",
+        condition: (data, params) => params.numbers.includes(data.totalResult),
+        action: (data, params) => {
+            const { room, totalResult, currentPlayer, players } = data;
+            params.playAgain = true;
+
+            // Trouver l'index du joueur actuel
+            const currentIndex = players.findIndex(player => player.id === currentPlayer.id);
+            
+            // Déterminer le joueur précédent et suivant
+            const previousPlayer = players[(currentIndex - 1 + players.length) % players.length];
+            const nextPlayer = players[(currentIndex + 1) % players.length];
+
+            return new Promise((resolve) => {
+                if(totalResult === 9){
+                    io.in(room).emit('chickenPlayerPenalties', {
+                        playerId: currentPlayer,
+                        penalty: `Pénalité infligée à ${previousPlayer.name} car ${currentPlayer.name} a 9 !`
+                    });
+                }else if(totalResult === 10){
+                    params.playAgain = false;
+                    io.in(room).emit('chickenPlayerPenalties', {
+                        playerId: currentPlayer,
+                        penalty: `Pénalité infligée à ${currentPlayer.name} car il a fait 10 !`
+                    });
+                }else if(totalResult === 11){
+                    io.in(room).emit('chickenPlayerPenalties', {
+                        playerId: currentPlayer,
+                        penalty: `Pénalité infligée à ${nextPlayer.name} car ${currentPlayer.name} a 9 !`
+                    });
+                }
+                resolve();
+            });
+        },
+        params: { numbers: [9, 10, 11], playAgain : true }
     }
 ];
 
 const applyRules = async (data) => {
+    
+    let playAgain = false;
     for (let rule of rules) {
         if (rule.condition(data, rule.params)) {
-            await rule.action(data);
+            await rule.action(data, rule.params);
+            if(rule.params.playAgain) playAgain = true;
         }
     }
 
     // Passer au joueur suivant après vérification des règles
-    rooms[data.room].currentTurn = (rooms[data.room].currentTurn + 1) % rooms[data.room].players.length;
+    rooms[data.room].currentTurn = playAgain ? rooms[data.room].currentTurn : (rooms[data.room].currentTurn + 1) % rooms[data.room].players.length;
     const nextPlayer = rooms[data.room].players[rooms[data.room].currentTurn];
     io.in(data.room).emit('updateTurn', {
         playerId: nextPlayer.id,
